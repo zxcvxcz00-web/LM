@@ -1,5 +1,4 @@
-import fs from 'node:fs/promises';
-import { chromium } from 'playwright';
+const fs = require('fs/promises');
 
 const URLS = {
   total: 'https://manga.line.me/periodic/gender_ranking?gender=0',
@@ -9,66 +8,86 @@ const URLS = {
 
 const LIMIT = 30;
 
-async function extractTitles(page, url) {
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(5000);
-
-  // 🔴 핵심: 랭킹 카드 영역만 정확히 긁기
-  const titles = await page.evaluate((limit) => {
-    const results = [];
-
-    // LINE Manga 랭킹 카드 선택자
-    const cards = document.querySelectorAll('li');
-
-    for (let card of cards) {
-      // 제목 후보: img alt 또는 내부 텍스트
-      const img = card.querySelector('img');
-      if (img && img.alt) {
-        const title = img.alt.trim();
-
-        // 필터 (UI 텍스트 제거)
-        if (
-          title.length > 2 &&
-          !title.includes('LINE') &&
-          !title.includes('無料') &&
-          !title.includes('ログイン')
-        ) {
-          results.push(title);
-        }
-      }
-
-      if (results.length >= limit) break;
+async function fetchHtml(url) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Accept-Language': 'ja,en;q=0.9',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Referer': 'https://manga.line.me/'
     }
+  });
 
-    return results.slice(0, limit);
-  }, LIMIT);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} for ${url}`);
+  }
 
-  return titles;
+  return await response.text();
+}
+
+function parseTitles(html) {
+  const results = [];
+  const seen = new Set();
+
+  const regex = /^##\s+(.+?)\s*$/gm;
+  let match;
+
+  while ((match = regex.exec(html)) !== null) {
+    const title = String(match[1] || '').trim();
+
+    if (!title) continue;
+    if (seen.has(title)) continue;
+
+    if ([
+      'ランキング',
+      '確認',
+      'キャンセル',
+      '完了しました'
+    ].includes(title)) continue;
+
+    if (title.length < 2) continue;
+    if (/^\d+$/.test(title)) continue;
+
+    seen.add(title);
+    results.push(title);
+
+    if (results.length >= LIMIT) break;
+  }
+
+  return results;
+}
+
+async function getRanking(url) {
+  const html = await fetchHtml(url);
+  return parseTitles(html);
 }
 
 async function main() {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({
-    userAgent: 'Mozilla/5.0',
-    locale: 'ja-JP',
-  });
-
-  const total = await extractTitles(page, URLS.total);
-  const male = await extractTitles(page, URLS.male);
-  const female = await extractTitles(page, URLS.female);
+  const total = await getRanking(URLS.total);
+  const male = await getRanking(URLS.male);
+  const female = await getRanking(URLS.female);
 
   const data = {
     updated_at: new Date().toISOString(),
     jp: {
       total,
       male,
-      female,
-    },
+      female
+    }
   };
 
   await fs.writeFile('LM_Ranking.json', JSON.stringify(data, null, 2), 'utf8');
 
-  await browser.close();
+  console.log(JSON.stringify({
+    updated_at: data.updated_at,
+    total_count: total.length,
+    male_count: male.length,
+    female_count: female.length,
+    sample_total: total.slice(0, 5)
+  }, null, 2));
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
