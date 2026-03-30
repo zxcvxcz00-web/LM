@@ -1,4 +1,4 @@
-const fs = require('fs/promises');
+import fs from 'node:fs/promises';
 
 const URLS = {
   total: 'https://manga.line.me/periodic/gender_ranking?gender=0',
