@@ -10,47 +10,40 @@ const URLS = {
 const LIMIT = 30;
 
 async function extractTitles(page, url) {
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await page.waitForTimeout(3000);
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(5000);
 
+  // 🔴 핵심: 랭킹 카드 영역만 정확히 긁기
   const titles = await page.evaluate((limit) => {
-    const textFrom = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
+    const results = [];
 
-    const candidates = [];
-    const seen = new Set();
+    // LINE Manga 랭킹 카드 선택자
+    const cards = document.querySelectorAll('li');
 
-    const push = (value) => {
-      const v = String(value || '').replace(/\s+/g, ' ').trim();
-      if (!v) return;
-      if (v.length < 2) return;
-      if (/^(ランキング|総合ランキング|男性向けランキング|女性向けランキング)$/i.test(v)) return;
-      if (/^\d+$/.test(v)) return;
-      if (seen.has(v)) return;
-      seen.add(v);
-      candidates.push(v);
-    };
+    for (let card of cards) {
+      // 제목 후보: img alt 또는 내부 텍스트
+      const img = card.querySelector('img');
+      if (img && img.alt) {
+        const title = img.alt.trim();
 
-    document.querySelectorAll('img[alt]').forEach((img) => {
-      push(img.getAttribute('alt'));
-    });
-
-    document.querySelectorAll('h1,h2,h3,h4,h5,h6,a,span,div,p').forEach((el) => {
-      const txt = textFrom(el);
-      if (!txt) return;
-      if (txt.length >= 2 && txt.length <= 120) {
-        push(txt);
+        // 필터 (UI 텍스트 제거)
+        if (
+          title.length > 2 &&
+          !title.includes('LINE') &&
+          !title.includes('無料') &&
+          !title.includes('ログイン')
+        ) {
+          results.push(title);
+        }
       }
-    });
 
-    const cleaned = candidates.filter((t) => {
-      if (/^(ログイン|無料|毎日|先読み|話|巻|連載|新着|ホーム|検索|ランキング|総合|男性向け|女性向け|連載中)$/i.test(t)) return false;
-      return true;
-    });
+      if (results.length >= limit) break;
+    }
 
-    return cleaned.slice(0, limit);
+    return results.slice(0, limit);
   }, LIMIT);
 
-  return titles.slice(0, LIMIT);
+  return titles;
 }
 
 async function main() {
