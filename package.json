@@ -1,0 +1,12 @@
+{
+  "name": "line-manga-ranking-auto",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "update": "node update.js"
+  },
+  "dependencies": {
+    "playwright": "^1.53.0"
+  }
+}
